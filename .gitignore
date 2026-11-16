@@ -1,0 +1,14 @@
+# 忽略系统与编辑器临时文件
+Thumbs.db
+.DS_Store
+__pycache__/
+*.pyc
+.vscode/
+.idea/
+
+# Python 虚拟环境
+.venv/
+venv/
+
+# 注意：演示视频若单文件超过 100MB，GitHub 会拒绝推送，
+# 请改用 Releases 上传，或在 README 里放网盘链接。
