@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>0-1 背包 · 动态规划可视化（OpenMAIC 起步脚手架）</title>
+<style>
+  :root {
+    --bg: #0f172a; --panel: #1e293b; --ink: #e2e8f0; --muted: #94a3b8;
+    --current: #f59e0b; --skip: #3b82f6; --take: #22c55e; --chosen: #bbf7d0;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+         background: var(--bg); color: var(--ink); padding: 18px; line-height: 1.5; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 12px; margin-bottom: 14px; }
+  .controls { background: var(--panel); border-radius: 10px; padding: 12px; margin-bottom: 14px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+  label { font-size: 13px; color: var(--muted); }
+  textarea, input[type=text], input[type=number] {
+    background: #0b1220; color: var(--ink); border: 1px solid #334155; border-radius: 6px;
+    padding: 6px 8px; font-size: 13px; font-family: ui-monospace, Menlo, Consolas, monospace;
+  }
+  textarea { width: 260px; height: 56px; resize: vertical; }
+  button {
+    background: #2563eb; color: #fff; border: 0; border-radius: 6px; padding: 7px 12px;
+    font-size: 13px; cursor: pointer;
+  }
+  button:hover { background: #1d4ed8; }
+  button.ghost { background: #334155; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  input[type=range] { accent-color: #2563eb; }
+  .stage { display: flex; gap: 16px; flex-wrap: wrap; }
+  .gridwrap { overflow: auto; background: var(--panel); border-radius: 10px; padding: 12px; }
+  table.dp { border-collapse: collapse; font-size: 13px; }
+  table.dp th, table.dp td {
+    border: 1px solid #334155; padding: 6px 9px; text-align: center; min-width: 34px;
+  }
+  table.dp th { background: #0b1220; color: var(--muted); font-weight: 600; }
+  .rowlabel { white-space: nowrap; font-size: 12px; }
+  td.cell { background: #0b1220; color: #64748b; }
+  td.filled { background: #111c33; color: var(--ink); }
+  td.current { background: var(--current) !important; color: #1f1300; font-weight: 700; }
+  td.src-skip { outline: 3px solid var(--skip); outline-offset: -3px; }
+  td.src-take { outline: 3px solid var(--take); outline-offset: -3px; }
+  td.chosen { background: var(--chosen) !important; color: #052e16; font-weight: 700; }
+  .info { flex: 1; min-width: 260px; background: var(--panel); border-radius: 10px; padding: 12px; font-size: 14px; }
+  .info b { color: #fde68a; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; font-size: 12px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+  .bt { margin-top: 12px; font-size: 13px; color: var(--muted); }
+  .bt b { color: var(--chosen); }
+</style>
+</head>
+<body>
+  <h1>0-1 背包 · 动态规划可视化</h1>
+  <div class="sub">自包含单文件页面 · 可直接作为 OpenMAIC 交互场景的 <code>html</code> 字段载入（widgetType: simulation）</div>
+
+  <div class="controls">
+    <div class="row">
+      <label>物品（格式 <code>重量,价值; 重量,价值</code>）</label>
+      <textarea id="items">2,3; 3,4; 4,5; 5,6</textarea>
+      <label>背包容量 W</label>
+      <input type="number" id="cap" value="8" min="0" style="width:64px" />
+      <button id="apply">应用 / 重新计算</button>
+    </div>
+    <div class="row">
+      <button id="prev" class="ghost">◀ 上一步</button>
+      <button id="next">下一步 ▶</button>
+      <button id="play" class="ghost">▶ 自动播放</button>
+      <button id="reset" class="ghost">⟲ 重置</button>
+      <button id="trace">🎒 回溯所选物品</button>
+      <label style="margin-left:8px">速度</label>
+      <input type="range" id="speed" min="120" max="1200" value="600" step="60" style="width:120px" />
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="gridwrap"><div id="grid"></div></div>
+    <div class="info">
+      <div id="info"></div>
+      <div class="legend">
+        <span><i class="sw" style="background:var(--current)"></i>当前格</span>
+        <span><i class="sw" style="outline:3px solid var(--skip);outline-offset:-3px;background:#0b1220"></i>来源·不放入</span>
+        <span><i class="sw" style="outline:3px solid var(--take);outline-offset:-3px;background:#0b1220"></i>来源·放入</span>
+        <span><i class="sw" style="background:var(--chosen)"></i>已选物品</span>
+      </div>
+      <div class="bt" id="backtrack"></div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  var items = [];      // [{w, v}]
+  var W = 0;
+  var dp = [];         // (n+1) x (W+1)
+  var order = [];      // [{i, j}] 填充顺序
+  var step = 0;        // 已填充格数（0..order.length）
+  var timer = null;
+  var chosen = [];     // 已选物品（1-based 索引）
+
+  var $ = function (id) { return document.getElementById(id); };
+  var grid = $('grid'), info = $('info'), backtrack = $('backtrack');
+
+  function parse(str) {
+    return str.split(';').map(function (s) { return s.trim(); }).filter(Boolean).map(function (s) {
+      var p = s.split(',').map(function (x) { return parseInt(x.trim(), 10); });
+      return { w: p[0], v: p[1] };
+    }).filter(function (o) { return Number.isFinite(o.w) && Number.isFinite(o.v); });
+  }
+
+  function compute() {
+    items = parse($('items').value);
+    W = parseInt($('cap').value, 10) || 0;
+    var n = items.length;
+    dp = [];
+    for (var i = 0; i <= n; i++) { dp.push(new Array(W + 1).fill(0)); }
+    order = [];
+    for (var i2 = 1; i2 <= n; i2++) {
+      for (var j = 0; j <= W; j++) {
+        var w = items[i2 - 1].w, v = items[i2 - 1].v;
+        if (w <= j) dp[i2][j] = Math.max(dp[i2 - 1][j], dp[i2 - 1][j - w] + v);
+        else dp[i2][j] = dp[i2 - 1][j];
+        order.push({ i: i2, j: j });
+      }
+    }
+    step = 0; chosen = []; stop();
+    render();
+  }
+
+  function cur() { return (step > 0 && step <= order.length) ? order[step - 1] : null; }
+
+  function render() {
+    var n = items.length;
+    var c = cur();
+    var html = '<table class="dp"><tr><th class="rowlabel">物品＼容量</th>';
+    for (var j = 0; j <= W; j++) html += '<th>' + j + '</th>';
+    html += '</tr>';
+
+    for (var i = 0; i <= n; i++) {
+      var label = (i === 0) ? '∅（不选）' : ('i=' + i + '<br>w=' + items[i - 1].w + ',v=' + items[i - 1].v);
+      html += '<tr><th class="rowlabel">' + label + '</th>';
+      for (var j2 = 0; j2 <= W; j2++) {
+        var idx = (i === 0) ? -1 : ((i - 1) * (W + 1) + j2);
+        var revealed = (i === 0) || (idx < step);
+        var isCur = c && c.i === i && c.j === j2;
+        var cls = 'cell';
+        if (revealed) cls += ' filled';
+        if (isCur) cls += ' current';
+        if (c) {
+          if (c.i - 1 === i && c.j === j2) cls += ' src-skip';
+          var cw = items[c.i - 1].w;
+          if (cw <= c.j && c.i - 1 === i && c.j - cw === j2) cls += ' src-take';
+        }
+        if (chosen.indexOf(i) !== -1) cls += ' chosen';
+        var val = revealed ? dp[i][j2] : '';
+        html += '<td class="' + cls + '">' + val + '</td>';
+      }
+      html += '</tr>';
+    }
+    html += '</table>';
+    grid.innerHTML = html;
+    info.innerHTML = infoText(c, n);
+    $('prev').disabled = step <= 0;
+    $('next').disabled = step >= order.length;
+    $('trace').disabled = step < order.length;
+  }
+
+  function infoText(c, n) {
+    if (step === 0) return '尚未开始。点击「下一步」按依赖顺序逐格填充 DP 表。';
+    if (step > order.length) {
+      return '✅ 填充完成。最大价值 = dp[' + n + '][' + W + '] = <b>' + dp[n][W] + '</b>。点击「🎒 回溯所选物品」查看具体选取。';
+    }
+    var i = c.i, j = c.j, w = items[i - 1].w, v = items[i - 1].v;
+    if (w <= j) {
+      var skip = dp[i - 1][j], take = dp[i - 1][j - w] + v, opt = Math.max(skip, take);
+      var note = (opt === take) ? '取「放入」更优' : '取「不放入」更优';
+      return '当前格 <b>dp[' + i + '][' + j + ']</b>：容量 ' + j + ' ≥ 物品' + i + '重量 ' + w +
+        '。<br>dp[' + i + '][' + j + '] = max( dp[' + (i - 1) + '][' + j + ']=' + skip +
+        ' , dp[' + (i - 1) + '][' + (j - w) + ']+v=' + take + ' ) = <b>' + opt + '</b>　（' + note + '）';
+    }
+    return '当前格 <b>dp[' + i + '][' + j + ']</b>：容量 ' + j + ' &lt; 物品' + i + '重量 ' + w +
+      '，放不下 ⇒ dp[' + i + '][' + j + '] = dp[' + (i - 1) + '][' + j + '] = <b>' + dp[i - 1][j] + '</b>';
+  }
+
+  function doTrace() {
+    var i = items.length, j = W;
+    chosen = [];
+    while (i > 0 && j > 0) {
+      if (dp[i][j] !== dp[i - 1][j]) { chosen.push(i); j -= items[i - 1].w; }
+      i--;
+    }
+    var totalW = 0; chosen.forEach(function (x) { totalW += items[x - 1].w; });
+    render();
+    if (chosen.length) {
+      var list = chosen.slice().reverse().map(function (x) {
+        return '物品' + x + '(w=' + items[x - 1].w + ',v=' + items[x - 1].v + ')';
+      }).join('，');
+      backtrack.innerHTML = '🎒 所选物品：<b>' + list + '</b>；总价值 ' + dp[items.length][W] +
+        '，总重量 ' + totalW + ' ≤ ' + W;
+    } else {
+      backtrack.innerHTML = '无物品可选（最大价值为 0）。';
+    }
+  }
+
+  function stop() { if (timer) { clearInterval(timer); timer = null; } $('play').textContent = '▶ 自动播放'; }
+  function play() {
+    if (timer) { stop(); return; }
+    if (step >= order.length) step = 0;
+    $('play').textContent = '⏸ 暂停';
+    var delay = 1320 - parseInt($('speed').value, 10);
+    timer = setInterval(function () {
+      if (step >= order.length) { stop(); return; }
+      step++; render();
+    }, delay);
+  }
+
+  $('apply').onclick = compute;
+  $('next').onclick = function () { if (step < order.length) { step++; render(); } else stop(); };
+  $('prev').onclick = function () { if (step > 0) { step--; render(); } };
+  $('reset').onclick = function () { stop(); step = 0; chosen = []; backtrack.innerHTML = ''; render(); };
+  $('play').onclick = play;
+  $('trace').onclick = doTrace;
+  $('speed').oninput = function () { if (timer) { stop(); play(); } };
+
+  compute();
+})();
+</script>
+</body>
+</html>
